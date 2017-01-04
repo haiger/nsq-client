@@ -22,7 +22,7 @@ public class Consumer {
     private String topic;
     private String channel;
     private static final int readyCount = 10;
-    private ConsumerHandler subListener;
+    private ConsumerHandler consumerHandler;
     private ConcurrentHashMap</*ip:port*/String, Connector> connectorMap;
     
     public Consumer(String host, int port, String topic, String channel) {
@@ -38,7 +38,7 @@ public class Consumer {
     }
     
     public void connect() {
-        if (subListener == null) {
+        if (consumerHandler == null) {
             log.warn("ConnectorListener must be seted.");
             return;
         }
@@ -52,7 +52,7 @@ public class Consumer {
         for (NSQNode node : nsqNodes) {
             Connector connector = null;
             try {
-                connector = new NSQConnector(node.getHost(), node.getPort(), subListener, readyCount);
+                connector = new NSQConnector(node.getHost(), node.getPort(), consumerHandler, readyCount);
                 connector.sub(topic, channel);
                 connector.rdy(readyCount);
                 connectorMap.put(ConnectorUtils.getConnectorKey(node), connector);
@@ -65,12 +65,12 @@ public class Consumer {
         ConnectorMonitor.getInstance().registerConsumer(this);
     }
 
-    public void setSubListener(ConsumerHandler listener) {
-        this.subListener = listener;
+    public void setSubListener(ConsumerHandler consumerHandler) {
+        this.consumerHandler = consumerHandler;
     }
     
-    public ConsumerHandler getSubListener() {
-        return subListener;
+    public ConsumerHandler getConsumerHandler() {
+        return consumerHandler;
     }
     
     public String getTopic() {

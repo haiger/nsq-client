@@ -106,7 +106,7 @@ public class ConnectorMonitor {
                 if (!oldNodes.contains(node)) {
                     Connector connector = null;
                     try {
-                        connector = new NSQConnector(node.getHost(), node.getPort(), consumer.getSubListener(), consumer.getReadyCount());
+                        connector = new NSQConnector(node.getHost(), node.getPort(), consumer.getConsumerHandler(), consumer.getReadyCount());
                         connector.sub(consumer.getTopic(), consumer.getChannel());
                         connector.rdy(consumer.getReadyCount());
                         connectorMap.put(ConnectorUtils.getConnectorKey(node), connector);
