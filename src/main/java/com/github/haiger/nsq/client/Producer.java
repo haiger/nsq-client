@@ -1,4 +1,4 @@
-package com.github.haiger.nsq.client.remoting.connector;
+package com.github.haiger.nsq.client;
 
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -7,35 +7,34 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.haiger.nsq.client.lookup.NSQNode;
-import com.github.haiger.nsq.client.command.Publish;
-import com.github.haiger.nsq.client.constant.ResponseType;
 import com.github.haiger.nsq.client.exception.NSQException;
-import com.github.haiger.nsq.client.frame.NSQFrame;
-import com.github.haiger.nsq.client.frame.ResponseFrame;
-import com.github.haiger.nsq.client.remoting.ConnectorMonitor;
+import com.github.haiger.nsq.client.lookup.NSQNode;
+import com.github.haiger.nsq.client.protocol.Request;
+import com.github.haiger.nsq.client.protocol.RequestBuilder;
+import com.github.haiger.nsq.client.protocol.Response;
 import com.github.haiger.nsq.client.remoting.NSQConnector;
+import com.github.haiger.nsq.client.util.ConnectorUtils;
 
 /**
  * @author haiger
- * @since 2016年12月27日 下午2:47:56
+ * @since 2017年1月5日 上午6:39:24
  */
-public class ProducerConnector {
-    private static final Logger log = LoggerFactory.getLogger(ProducerConnector.class);
+public class Producer {
+    private static final Logger log = LoggerFactory.getLogger(Producer.class);
     private String host; // lookupd ip
     private int port; // lookupd port
-    private ConcurrentHashMap</* ip:port */String, NSQConnector> connectorMap;
+    private ConcurrentHashMap</* ip:port */String, Connector> connectorMap;
     private AtomicLong index;
     private static final int DEFAULT_RETRY = 3;
 
-    public ProducerConnector(String host, int port) {
+    public Producer(String host, int port) {
         this.host = host;
         this.port = port;
-        this.connectorMap = new ConcurrentHashMap<String, NSQConnector>();
+        this.connectorMap = new ConcurrentHashMap<String, Connector>();
         this.index = new AtomicLong(0);
     }
 
-    public ConcurrentHashMap<String, NSQConnector> getConnectorMap() {
+    public ConcurrentHashMap<String, Connector> getConnectorMap() {
         return connectorMap;
     }
 
@@ -50,7 +49,7 @@ public class ProducerConnector {
             if (ConnectorUtils.isExcluded(nsqNode))
                 continue;
 
-            NSQConnector connector = null;
+            Connector connector = null;
             try {
                 connector = new NSQConnector(nsqNode.getHost(), nsqNode.getPort(), null, 0);
                 connectorMap.put(ConnectorUtils.getConnectorKey(nsqNode), connector);
@@ -68,23 +67,21 @@ public class ProducerConnector {
     }
 
     public boolean put(String topic, byte[] msgData) throws NSQException, InterruptedException {
-        Publish pub = new Publish(topic, msgData);
-        NSQConnector connector = getConnector();
+        Connector connector = getConnector();
 
         if (connector == null)
             throw new NSQException("No active connector to be used.");
 
-        NSQFrame response = connector.writeAndWait(pub);
-        if (response instanceof ResponseFrame) {
-            if (((ResponseFrame) response).getResponseType() == ResponseType.OK) {
-                return true;
-            }
+        Request request = RequestBuilder.buildPub(topic, msgData);
+        Response response = connector.writeAndWait(request);
+        if (response.isOK()) {
+            return true;
         }
-        throw new NSQException(response.getMessage());
+        throw new NSQException(response.decodeString());
     }
 
-    private NSQConnector getConnector() {
-        NSQConnector connector = nextConnector();
+    private Connector getConnector() {
+        Connector connector = nextConnector();
         if (connector == null) return null;
         int retry = 0;
         while (!connector.isConnected()) {
@@ -100,28 +97,28 @@ public class ProducerConnector {
         return connector;
     }
 
-    private NSQConnector nextConnector() {
-        NSQConnector[] connectors = new NSQConnector[connectorMap.size()];
+    private Connector nextConnector() {
+        Connector[] connectors = new NSQConnector[connectorMap.size()];
         connectorMap.values().toArray(connectors);
         if (connectors.length < 1) return null;
         Long nextIndex = Math.abs(index.incrementAndGet() % connectors.length);
         return connectors[nextIndex.intValue()];
     }
     
-    public boolean removeConnector(NSQConnector connector) {
+    public boolean removeConnector(Connector connector) {
         if (connector == null) return true;
         log.info("Producer: removeConnector({})", ConnectorUtils.getConnectorKey(connector));
         connector.close();
         return connectorMap.remove(ConnectorUtils.getConnectorKey(connector), connector);
     }
     
-    public void addConnector(NSQConnector connector) {
+    public void addConnector(Connector connector) {
         log.info("Producer: addConnector({})", ConnectorUtils.getConnectorKey(connector));
         connectorMap.put(ConnectorUtils.getConnectorKey(connector), connector);
     }
 
     public void close() {
-        for (NSQConnector connector : connectorMap.values()) {
+        for (Connector connector : connectorMap.values()) {
             connector.close();
         }
     }

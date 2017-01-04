@@ -1,4 +1,4 @@
-package com.github.haiger.nsq.client.remoting;
+package com.github.haiger.nsq.client.util;
 
 import java.net.Inet4Address;
 import java.net.Inet6Address;

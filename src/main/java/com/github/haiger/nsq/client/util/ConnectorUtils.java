@@ -1,10 +1,10 @@
-package com.github.haiger.nsq.client.remoting.connector;
+package com.github.haiger.nsq.client.util;
 
 import java.util.List;
 
 import com.github.haiger.nsq.client.lookup.NSQNode;
+import com.github.haiger.nsq.client.Connector;
 import com.github.haiger.nsq.client.lookup.LookupdClients;
-import com.github.haiger.nsq.client.remoting.NSQConnector;
 
 /**
  * @author haiger
@@ -28,7 +28,7 @@ public class ConnectorUtils {
         return sb.toString();
     }
 
-    public static String getConnectorKey(NSQConnector connector) {
+    public static String getConnectorKey(Connector connector) {
         StringBuffer sb = new StringBuffer();
         sb.append(connector.getHost()).append(":").append(connector.getPort());
         return sb.toString();

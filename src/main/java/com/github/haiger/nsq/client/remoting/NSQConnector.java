@@ -22,40 +22,30 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.haiger.nsq.client.command.Close;
-import com.github.haiger.nsq.client.command.Finish;
-import com.github.haiger.nsq.client.command.Identify;
-import com.github.haiger.nsq.client.command.Magic;
-import com.github.haiger.nsq.client.command.NSQCommand;
-import com.github.haiger.nsq.client.command.Nop;
-import com.github.haiger.nsq.client.command.Ready;
-import com.github.haiger.nsq.client.command.Requeue;
-import com.github.haiger.nsq.client.command.Subscribe;
+import com.github.haiger.nsq.client.Connector;
+import com.github.haiger.nsq.client.ConsumerHandler;
 import com.github.haiger.nsq.client.exception.NSQException;
-import com.github.haiger.nsq.client.frame.ErrorFrame;
-import com.github.haiger.nsq.client.frame.MessageFrame;
-import com.github.haiger.nsq.client.frame.NSQFrame;
-import com.github.haiger.nsq.client.frame.ResponseFrame;
-import com.github.haiger.nsq.client.remoting.connector.NSQConfig;
-import com.github.haiger.nsq.client.remoting.handler.NSQChannelHandler;
-import com.github.haiger.nsq.client.remoting.handler.NSQFrameDecoder;
-import com.github.haiger.nsq.client.remoting.handler.NSQMessage;
-import com.github.haiger.nsq.client.remoting.listener.ConnectorListener;
-import com.github.haiger.nsq.client.remoting.listener.NSQEvent;
+import com.github.haiger.nsq.client.protocol.Message;
+import com.github.haiger.nsq.client.protocol.NSQConfig;
+import com.github.haiger.nsq.client.protocol.Request;
+import com.github.haiger.nsq.client.protocol.RequestBuilder;
+import com.github.haiger.nsq.client.protocol.Response;
+import com.github.haiger.nsq.client.protocol.ResponseType;
+import com.github.haiger.nsq.client.remoting.codec.NSQFrameDecoder;
 
 /**
  * @author haiger
  * @since 2016年12月27日 下午2:29:29
  */
-public class NSQConnector {
+public class NSQConnector implements Connector {
     private static final Logger log = LoggerFactory.getLogger(NSQConnector.class);
     private String host; // nsqd host
     private int port; // nsqd tcp port
     private Channel channel;
     private EventLoopGroup workerGroup;
-    private ConnectorListener subListener;
-    private LinkedBlockingQueue<NSQCommand> requests = new LinkedBlockingQueue<NSQCommand>(1);
-    private LinkedBlockingQueue<NSQFrame> responses = new LinkedBlockingQueue<NSQFrame>(1);
+    private ConsumerHandler consumerHandler;
+    private LinkedBlockingQueue<Request> requests = new LinkedBlockingQueue<Request>(1);
+    private LinkedBlockingQueue<Response> responses = new LinkedBlockingQueue<Response>(1);
     private final NSQChannelHandler handler = new NSQChannelHandler();;
     private static final int DEFAULT_WAIT = 10;
     private static final int DEFAULT_REQ_TIMEOUT = 0;
@@ -64,8 +54,8 @@ public class NSQConnector {
     private final AtomicLong rdyCount = new AtomicLong();
     public static final AttributeKey<NSQConnector> CONNECTOR = AttributeKey.valueOf("connector");
 
-    public NSQConnector(String host, int port, ConnectorListener subListener, int rdyCount) throws NSQException {
-        this.subListener = subListener;
+    public NSQConnector(String host, int port, ConsumerHandler consumerHandler, int rdyCount) throws NSQException {
+        this.consumerHandler = consumerHandler;
         this.host = host;
         this.port = port;
         this.defaultRdyCount = rdyCount;
@@ -94,66 +84,71 @@ public class NSQConnector {
         this.channel.attr(CONNECTOR).set(this);
         sendMagic();
 
-        Identify identify = new Identify(new NSQConfig());
         try {
-            NSQFrame resp = writeAndWait(identify);
-            log.info("identify response:" + resp.getMessage());
-        } catch (InterruptedException e) {
+            Response resp = writeAndWait(RequestBuilder.buildIdentify(new NSQConfig()));
+            if (resp.isOK()) {
+                log.info("identify response:" + resp.decodeString());
+            } else {
+                close();
+                log.error("identify error response:" + resp.decodeString());
+            }
+        } catch (InterruptedException | NSQException e) {
+            close();
             throw new NSQException("send indentify goes wrong.", e);
         }
     }
 
-    public void incoming(Object msg) {
-        if (msg instanceof ResponseFrame) {
-            ResponseFrame resp = (ResponseFrame) msg;
-            if ("_heartbeat_".equalsIgnoreCase(resp.getMessage())) {
+    public void dealMsg(Object msg) {
+        Response resp = (Response)msg;
+        switch (resp.getType()) {
+        case RESPONSE:
+            if (resp.isHeartbeat()) {
                 nop();
-            } else {
-                dealResponse(resp);
             }
-        } else if (msg instanceof ErrorFrame) {
-            log.error("get errorFrame:" + ((ErrorFrame) msg).getError());
-            dealResponse((ErrorFrame) msg);
-        } else if (msg instanceof MessageFrame) {
-            MessageFrame msgFrame = (MessageFrame) msg;
+        case ERROR:
+            log.info("response string:" + resp.decodeString());
+            dealResponse(resp);
+            break;
+            
+        case MESSAGE:
+            Message message = resp.decodeMessage();
+            byte[] data = message.getBody();
+            byte[] messageId = message.getMessageId();
 
-            NSQMessage nsqMsg = msgFrame.getNSQMessage();
-            byte[] data = nsqMsg.getBody();
-            String message = new String(data);
-            log.debug("Received message\n" + message);
-
-            if (subListener != null) {
+            if (consumerHandler != null) {
                 try {
-                    subListener.handleEvent(new NSQEvent(NSQEvent.READ, data));
+                    consumerHandler.handle(data);
                     if (rdyCount.decrementAndGet() <= 0) {
                         rdyCount.set(defaultRdyCount);
-                        finishAndRdy(nsqMsg, defaultRdyCount);
+                        finishAndRdy(messageId, defaultRdyCount);
                     } else {
-                        finish(nsqMsg);
+                        finish(messageId);
                     }
                 } catch (Exception e) {
-                    if (nsqMsg.getAttempts() < DEFAULT_REQ_TIMES) {
+                    if (message.getAttempts() < DEFAULT_REQ_TIMES) {
                         log.warn("nsq message deal fail(will requeue) at:{}", e);
-                        requeue(nsqMsg);
+                        requeue(messageId);
                     } else {
                         log.warn("nsq message deal fail and requeue times gt 10, then be finished. this messageID:{}",
-                                new String(nsqMsg.getMessageId()));
-                        finish(nsqMsg);
+                                new String(messageId));
+                        finish(messageId);
                     }
                     
                     if (rdyCount.get() <= 0) 
                         rdy(defaultRdyCount);
                 }
             } else {
-                finish(nsqMsg);
+                finish(messageId);
                 log.warn("no message listener, this message has be finished.");
             }
-        } else {
+            break;
+        default:
             log.warn("something else error:{}", msg);
+            break;
         }
     }
 
-    private void dealResponse(NSQFrame resp) {
+    private void dealResponse(Response resp) {
         try {
             this.responses.offer(resp, DEFAULT_WAIT, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
@@ -161,20 +156,20 @@ public class NSQConnector {
         }
     }
 
-    public NSQFrame writeAndWait(NSQCommand command) throws NSQException, InterruptedException {
-        if (!this.requests.offer(command, DEFAULT_WAIT, TimeUnit.SECONDS)) {
+    public Response writeAndWait(Request request) throws NSQException, InterruptedException {
+        if (!this.requests.offer(request, DEFAULT_WAIT, TimeUnit.SECONDS)) {
             throw new NSQException("command request offer timeout");
         }
 
         this.responses.clear();
-        ChannelFuture cft = write(command);
+        ChannelFuture cft = write(request);
 
         if (!cft.await(DEFAULT_WAIT, TimeUnit.SECONDS)) {
             this.requests.poll();
             throw new NSQException("command writer timeout");
         }
 
-        NSQFrame response = this.responses.poll(DEFAULT_WAIT, TimeUnit.SECONDS);
+        Response response = this.responses.poll(DEFAULT_WAIT, TimeUnit.SECONDS);
         if (response == null) {
             this.requests.poll();
             throw new NSQException("command response poll timeout");
@@ -184,43 +179,38 @@ public class NSQConnector {
         return response;
     }
 
-    private ChannelFuture write(NSQCommand command) {
-        ByteBuf buf = channel.alloc().buffer().writeBytes(command.getCommandBytes());
+    private ChannelFuture write(Request request) {
+        ByteBuf buf = channel.alloc().buffer().writeBytes(request.encode());
         return channel.writeAndFlush(buf);
     }
 
     private void sendMagic() {
-        channel.writeAndFlush(channel.alloc().buffer().writeBytes(new Magic().getCommandBytes()));
+        ByteBuf magic = channel.alloc().buffer().writeBytes(RequestBuilder.buildMagic().encode());
+        channel.writeAndFlush(magic);
     }
 
     public ChannelFuture sub(String topic, String channel) {
-        Subscribe sub = new Subscribe(topic, channel);
-        log.debug("Subscribing to " + sub.getCommandString());
-
-        byte[] subBytes = sub.getCommandBytes();
-        return this.channel.writeAndFlush(this.channel.alloc().buffer().writeBytes(subBytes));
+        ByteBuf sub = this.channel.alloc().buffer().writeBytes(RequestBuilder.buildSub(topic, channel).encode());
+        return this.channel.writeAndFlush(sub);
     }
 
-    public ChannelFuture finish(NSQMessage msg) {
-        Finish finish = new Finish(msg.getMessageId());
-        ByteBuf buf = channel.alloc().buffer().writeBytes(finish.getCommandBytes());
-        return channel.writeAndFlush(buf);
+    public ChannelFuture finish(byte[] msgId) {
+        ByteBuf fin = channel.alloc().buffer().writeBytes(RequestBuilder.buildFin(msgId).encode());
+        return channel.writeAndFlush(fin);
     }
 
-    public ChannelFuture requeue(NSQMessage msg) {
-        Requeue requeue = new Requeue(msg.getMessageId(), DEFAULT_REQ_TIMEOUT);
-        ByteBuf buf = channel.alloc().buffer().writeBytes(requeue.getCommandBytes());
-        return channel.writeAndFlush(buf);
+    public ChannelFuture requeue(byte[] msgId) {
+        ByteBuf req = channel.alloc().buffer().writeBytes(RequestBuilder.buildReq(msgId, DEFAULT_REQ_TIMEOUT).encode());
+        return channel.writeAndFlush(req);
     }
 
     public ChannelFuture rdy(int count) {
-        Ready rdy = new Ready(count);
-        byte[] rdyBytes = rdy.getCommandBytes();
-        return channel.writeAndFlush(channel.alloc().buffer().writeBytes(rdyBytes));
+        ByteBuf rdy = channel.alloc().buffer().writeBytes(RequestBuilder.buildRdy(count).encode());
+        return channel.writeAndFlush(rdy);
     }
 
-    public ChannelFuture finishAndRdy(NSQMessage msg, final int count) {
-        return finish(msg).addListener(new GenericFutureListener<Future<? super Void>>() {
+    public ChannelFuture finishAndRdy(byte[] msgId, final int count) {
+        return finish(msgId).addListener(new GenericFutureListener<Future<? super Void>>() {
             public void operationComplete(Future<? super Void> future) throws Exception {
                 rdy(count);
             };
@@ -228,14 +218,15 @@ public class NSQConnector {
     }
 
     public ChannelFuture nop() {
-        return channel.writeAndFlush(channel.alloc().buffer().writeBytes(new Nop().getCommandBytes()));
+        ByteBuf nop = channel.alloc().buffer().writeBytes(RequestBuilder.buildNop().encode());
+        return channel.writeAndFlush(nop);
     }
 
     private void cleanClose() {
         try {
-            NSQFrame resp = writeAndWait(new Close());
-            if (resp instanceof ErrorFrame)
-                log.warn("cleanClose {}:{} goes error at:{}", host, port, resp.getMessage());
+            Response resp = writeAndWait(RequestBuilder.buildCls());
+            if (ResponseType.ERROR == resp.getType())
+                log.warn("cleanClose {}:{} goes error at:{}", host, port, resp.decodeString());
         } catch (NSQException | InterruptedException e) {
             log.warn("cleanClose {}:{} goes error at:{}", host, port, e);
         }

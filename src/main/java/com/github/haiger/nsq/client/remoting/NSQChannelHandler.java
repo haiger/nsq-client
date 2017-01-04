@@ -1,7 +1,4 @@
-package com.github.haiger.nsq.client.remoting.handler;
-
-import com.github.haiger.nsq.client.remoting.NSQConnector;
-import com.github.haiger.nsq.client.remoting.connector.ConnectorUtils;
+package com.github.haiger.nsq.client.remoting;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -10,6 +7,8 @@ import io.netty.handler.timeout.IdleStateEvent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.github.haiger.nsq.client.util.ConnectorUtils;
 
 /**
  * @author haiger
@@ -25,7 +24,7 @@ public class NSQChannelHandler extends ChannelInboundHandlerAdapter {
             ctx.channel().eventLoop().execute(new Runnable() {
                 @Override
                 public void run() {
-                    connector.incoming(msg);
+                    connector.dealMsg(msg);
                 }
             });
         } else {

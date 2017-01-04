@@ -1,12 +1,12 @@
-package com.github.haiger.nsq.client.remoting.connector;
+package com.github.haiger.nsq.client.protocol;
 
 import java.net.SocketException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.haiger.nsq.client.remoting.NetworkUtils;
-import com.github.haiger.nsq.client.remoting.NetworkUtils.StackType;
+import com.github.haiger.nsq.client.util.NetworkUtils;
+import com.github.haiger.nsq.client.util.NetworkUtils.StackType;
 
 import io.netty.handler.ssl.SslContext;
 
@@ -36,7 +36,7 @@ public class NSQConfig {
 
     public NSQConfig() {
         try {
-            userAgent = "JavaClient_1.0.0";
+            userAgent = "JavaClient_1.1.0";
             clientId = NetworkUtils.getFirstNonLoopbackAddress(StackType.IPv4).getHostAddress();
             hostname = clientId;
         } catch (SocketException e) {
