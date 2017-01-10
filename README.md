@@ -45,7 +45,7 @@ ConsumerHandler msgHandler = new ConsumerHandler() {
 };
 
 Consumer consumer = new Consumer(lookupHost, loopupPort, "testTopic", "testChannel");
-cunsumer.setConsumerhandler(msgHandler);
+consumer.setConsumerhandler(msgHandler);
 consumer.connect();
 
 
