@@ -180,33 +180,27 @@ public class NSQConnector implements Connector {
     }
 
     private ChannelFuture write(Request request) {
-        ByteBuf buf = channel.alloc().buffer().writeBytes(request.encode());
-        return channel.writeAndFlush(buf);
+        return writeAndFlush(request.encode());
     }
 
     private void sendMagic() {
-        ByteBuf magic = channel.alloc().buffer().writeBytes(RequestBuilder.buildMagic().encode());
-        channel.writeAndFlush(magic);
+        writeAndFlush(RequestBuilder.buildMagic().encode());
     }
 
     public ChannelFuture sub(String topic, String channel) {
-        ByteBuf sub = this.channel.alloc().buffer().writeBytes(RequestBuilder.buildSub(topic, channel).encode());
-        return this.channel.writeAndFlush(sub);
+        return writeAndFlush(RequestBuilder.buildSub(topic, channel).encode());
     }
 
     public ChannelFuture finish(byte[] msgId) {
-        ByteBuf fin = channel.alloc().buffer().writeBytes(RequestBuilder.buildFin(msgId).encode());
-        return channel.writeAndFlush(fin);
+        return writeAndFlush(RequestBuilder.buildFin(msgId).encode());
     }
 
     public ChannelFuture requeue(byte[] msgId) {
-        ByteBuf req = channel.alloc().buffer().writeBytes(RequestBuilder.buildReq(msgId, DEFAULT_REQ_TIMEOUT).encode());
-        return channel.writeAndFlush(req);
+        return writeAndFlush(RequestBuilder.buildReq(msgId, DEFAULT_REQ_TIMEOUT).encode());
     }
 
     public ChannelFuture rdy(int count) {
-        ByteBuf rdy = channel.alloc().buffer().writeBytes(RequestBuilder.buildRdy(count).encode());
-        return channel.writeAndFlush(rdy);
+        return writeAndFlush(RequestBuilder.buildRdy(count).encode());
     }
 
     public ChannelFuture finishAndRdy(byte[] msgId, final int count) {
@@ -218,9 +212,13 @@ public class NSQConnector implements Connector {
     }
 
     public ChannelFuture nop() {
-        ByteBuf nop = channel.alloc().buffer().writeBytes(RequestBuilder.buildNop().encode());
-        return channel.writeAndFlush(nop);
+        return writeAndFlush(RequestBuilder.buildNop().encode());
     }
+    
+    private ChannelFuture writeAndFlush(byte[] data) {
+        ByteBuf buf = channel.alloc().buffer().writeBytes(data);
+        return channel.writeAndFlush(buf);
+    } 
 
     private void cleanClose() {
         try {

@@ -1,7 +1,11 @@
 package com.github.haiger.nsq.client;
 
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +14,7 @@ import com.github.haiger.nsq.client.exception.NSQException;
 import com.github.haiger.nsq.client.lookup.NSQNode;
 import com.github.haiger.nsq.client.remoting.NSQConnector;
 import com.github.haiger.nsq.client.util.ConnectorUtils;
+import com.github.haiger.nsq.client.util.NamedThreadFactory;
 
 /**
  * @author haiger
@@ -24,6 +29,8 @@ public class Consumer {
     private static final int readyCount = 10;
     private ConsumerHandler consumerHandler;
     private ConcurrentHashMap</*ip:port*/String, Connector> connectorMap;
+    private static Executor handlerExecutor = new ThreadPoolExecutor(30, 50, 0L, TimeUnit.MILLISECONDS, 
+            new ArrayBlockingQueue<>(50), new NamedThreadFactory("Consumer_handler_"));
     
     public Consumer(String host, int port, String topic, String channel) {
         this.host = host;
@@ -65,7 +72,7 @@ public class Consumer {
         ConnectorMonitor.getInstance().registerConsumer(this);
     }
 
-    public void setSubListener(ConsumerHandler consumerHandler) {
+    public void setConsumerhandler(ConsumerHandler consumerHandler) {
         this.consumerHandler = consumerHandler;
     }
     

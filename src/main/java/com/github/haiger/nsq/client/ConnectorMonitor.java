@@ -111,7 +111,7 @@ public class ConnectorMonitor {
                         connector.rdy(consumer.getReadyCount());
                         connectorMap.put(ConnectorUtils.getConnectorKey(node), connector);
                     } catch (NSQException e) {
-                        log.error("Customer: connector to {} goes wrong at:{}", ConnectorUtils.getConnectorKey(node), e);
+                        log.error("Consumer: connector to {} goes wrong at:{}", ConnectorUtils.getConnectorKey(node), e);
                     }
                 }
             }
