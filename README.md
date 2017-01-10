@@ -12,7 +12,7 @@
 ## Producer
 Example usage:
 ``` java
-String lookupHost = "192/168.1.1";
+String lookupHost = "192.168.1.1";
 int lookupPort = 4161;
 Pruducer producer = new Producer(lookupHost, lookupPort);
 producer.connect();
@@ -32,7 +32,7 @@ Runtime.getRuntime().addShutdownHook(new Thread() {
 ## Consumer
 Example usage:
 ``` java
-String lookupHost = "192/168.1.1";
+String lookupHost = "192.168.1.1";
 int lookupPort = 4161;
 
 ConsumerHandler msgHandler = new ConsumerHandler() {
@@ -44,7 +44,7 @@ ConsumerHandler msgHandler = new ConsumerHandler() {
     }
 };
 
-Consumer consumer = new Consumer(lookupHost, loopupPort, "testTopic", "testChannel");
+Consumer consumer = new Consumer(lookupHost, lookupPort, "testTopic", "testChannel");
 consumer.setConsumerhandler(msgHandler);
 consumer.connect();
 
